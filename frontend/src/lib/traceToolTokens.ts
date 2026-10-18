@@ -18,6 +18,8 @@ interface AskedTool {
 
 /** Timings are rounded, so a tool that starts as its turn ends may read a hair early. */
 const START_TOLERANCE_MS = 1;
+/** Same ratio the backend uses when it estimates a prompt from characters. */
+const CHARS_PER_TOKEN = 4;
 
 function sizeOf(value: unknown): number {
   if (value === undefined || value === null) return 0;
@@ -37,6 +39,11 @@ function sizeOf(value: unknown): number {
  * same turn share that growth in proportion to how much each returned. A tool the
  * last turn asked for has no reader, and a trace that did not record per-turn
  * prompts has nothing to subtract, so neither gets an estimate.
+ *
+ * A prompt that shrank (trimmed history, a cache that is not counted, reasoning
+ * tokens that were not sent on) hides that growth. The result was still read, so
+ * those tools are estimated from their own size, about four characters per token.
+ * A result too small to take a share of a real growth is estimated the same way.
  */
 export function estimateToolTokens(trace: LLMTraceDetail): Map<string, ToolTokenEstimate> {
   const estimates = new Map<string, ToolTokenEstimate>();
@@ -65,15 +72,27 @@ export function estimateToolTokens(trace: LLMTraceDetail): Map<string, ToolToken
     if (!reader || asker.promptTokens === null || reader.promptTokens === null) continue;
 
     const grown = reader.promptTokens - asker.promptTokens - (asker.completionTokens ?? 0);
-    // Context that shrank (trimmed history, a cache that is not counted) hides the tools.
-    if (grown <= 0) continue;
-
     const totalWeight = tools.reduce((sum, tool) => sum + tool.weight, 0);
     for (const tool of tools) {
-      const share = totalWeight > 0 ? tool.weight / totalWeight : 1 / tools.length;
-      const tokens = Math.round(grown * share);
-      if (tokens <= 0) continue;
-      estimates.set(tool.id, { tokens, readByTurn: reader.turn, sharedBy: tools.length });
+      if (grown > 0) {
+        const share = totalWeight > 0 ? tool.weight / totalWeight : 1 / tools.length;
+        const tokens = Math.round(grown * share);
+        if (tokens > 0) {
+          estimates.set(tool.id, {
+            tokens,
+            readByTurn: reader.turn,
+            sharedBy: tools.length,
+          });
+          continue;
+        }
+      }
+      if (tool.weight <= 0) continue;
+      estimates.set(tool.id, {
+        tokens: Math.max(1, Math.round(tool.weight / CHARS_PER_TOKEN)),
+        readByTurn: reader.turn,
+        sharedBy: 1,
+        fromResultSize: true,
+      });
     }
   }
   return estimates;

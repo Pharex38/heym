@@ -27,10 +27,16 @@ defineProps<{
       <span class="text-muted-foreground">tokens</span>
     </div>
     <p class="whitespace-normal font-normal leading-snug text-muted-foreground">
-      Turn {{ estimate.readByTurn }}'s prompt grew by this much once the result was added.
-      <template v-if="estimate.sharedBy > 1">
-        Shared with {{ estimate.sharedBy - 1 }} other tool{{ estimate.sharedBy === 2 ? "" : "s" }}
-        in this step, split by result size.
+      <template v-if="estimate.fromResultSize">
+        Estimated from the result size, about four characters per token. Turn
+        {{ estimate.readByTurn }} read it.
+      </template>
+      <template v-else>
+        Turn {{ estimate.readByTurn }}'s prompt grew by this much once the result was added.
+        <template v-if="estimate.sharedBy > 1">
+          Shared with {{ estimate.sharedBy - 1 }} other tool{{ estimate.sharedBy === 2 ? "" : "s" }}
+          in this step, split by result size.
+        </template>
       </template>
     </p>
     <div
