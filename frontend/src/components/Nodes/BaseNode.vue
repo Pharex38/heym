@@ -101,6 +101,10 @@ const nodeColorMap = {
 const isSubAgentNode = computed(
   () => props.type === "agent" && !!props.data.isSubAgent
 );
+const previewAttachments = computed((): string => {
+  const value = (props.data as { previewAttachments?: unknown }).previewAttachments;
+  return typeof value === "string" ? value.trim() : "";
+});
 
 const { getEdges } = useVueFlow();
 const isToolNode = computed(
@@ -545,10 +549,15 @@ const hasThrowErrorWarning = computed(() => {
           >{{ batchRuntimeLabel }}</span>
         </div>
         <div
-          v-if="type === 'agent' && (data.model || data.persistentMemoryEnabled)"
+          v-if="type === 'agent' && (data.model || data.persistentMemoryEnabled || previewAttachments)"
           class="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap"
         >
           <span v-if="data.model">{{ data.model }}</span>
+          <span
+            v-if="previewAttachments"
+            class="truncate max-w-[140px]"
+            :title="previewAttachments"
+          >{{ previewAttachments }}</span>
           <button
             v-if="data.persistentMemoryEnabled"
             type="button"
