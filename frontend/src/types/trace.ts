@@ -18,6 +18,7 @@ export interface TraceSpan {
 /**
  * A tool spends no tokens itself; its output is read by the next turn. This is how
  * much that turn's prompt grew because of it, so it is an estimate, not a meter.
+ * When the prompt did not grow, the figure comes from the result size instead.
  */
 export interface ToolTokenEstimate {
   tokens: number;
@@ -25,6 +26,8 @@ export interface ToolTokenEstimate {
   readByTurn: number;
   /** Tools asked for by the same turn, this one included; they share the growth. */
   sharedBy: number;
+  /** The next prompt shrank or this result took no share of it, so tokens come from its size. */
+  fromResultSize?: boolean;
 }
 
 export interface TraceSpanTokens {

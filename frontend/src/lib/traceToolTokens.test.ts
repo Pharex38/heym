@@ -103,15 +103,46 @@ describe("estimateToolTokens", () => {
     expect(estimates.size).toBe(0);
   });
 
-  it("gives no estimate when the context did not grow", () => {
+  it("estimates from the result size when the next prompt did not grow", () => {
     const estimates = estimateToolTokens(
       makeTrace({
         turn_timings: [turns[0], { ...turns[1], promptTokens: 19000 }],
-        tool_calls: [tool("call-1", 8100, "x")],
+        tool_calls: [
+          { tool_call_id: "call-1", start_ms: 8100, result_chars: 4000 },
+          { tool_call_id: "call-2", start_ms: 8120, result_chars: 0 },
+        ],
       }),
     );
 
-    expect(estimates.size).toBe(0);
+    // 4000 characters, four per token. An empty result still has nothing to show.
+    expect(estimates.get("call-1")).toEqual({
+      tokens: 1000,
+      readByTurn: 2,
+      sharedBy: 1,
+      fromResultSize: true,
+    });
+    expect(estimates.has("call-2")).toBe(false);
+  });
+
+  it("estimates a tool whose share of the growth rounds to zero", () => {
+    const estimates = estimateToolTokens(
+      makeTrace({
+        turn_timings: turns,
+        tool_calls: [
+          { tool_call_id: "call-big", start_ms: 8100, result_chars: 100_000 },
+          { tool_call_id: "call-small", start_ms: 8110, result_chars: 8 },
+        ],
+      }),
+    );
+
+    expect(estimates.get("call-big")?.fromResultSize).toBeUndefined();
+    expect(estimates.get("call-big")?.tokens).toBeGreaterThan(0);
+    expect(estimates.get("call-small")).toEqual({
+      tokens: 2,
+      readByTurn: 2,
+      sharedBy: 1,
+      fromResultSize: true,
+    });
   });
 
   it("gives no estimate without per-turn prompts or tool offsets", () => {
@@ -175,5 +206,50 @@ describe("tool token estimate in the trace views", () => {
     expect(toolStep?.tokens).toBe(2900);
     expect(toolStep?.tokensEstimated).toBe(true);
     expect(toolStep?.tokensNote).toContain("turn 2");
+  });
+
+  it("keeps a size estimate on the tool row when the next prompt shrank", () => {
+    const shrunk = {
+      turn_timings: [turns[0], { ...turns[1], promptTokens: 19000 }],
+      tool_calls: [
+        {
+          tool_call_id: "call-1",
+          name: "save_workflow",
+          start_ms: 8100,
+          elapsed_ms: 22,
+          result_chars: 4000,
+        },
+      ],
+    };
+    const spans = buildTraceSpans(makeTrace(shrunk));
+    expect(spans.find((span) => span.id === "tool_0")?.toolTokens).toEqual({
+      tokens: 1000,
+      readByTurn: 2,
+      sharedBy: 1,
+      fromResultSize: true,
+    });
+
+    const steps = buildTraceSteps(
+      makeTrace(shrunk, {
+        messages: [
+          { role: "user", content: "Save it" },
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: [
+              {
+                id: "call-1",
+                type: "function",
+                function: { name: "save_workflow", arguments: "{}" },
+              },
+            ],
+          },
+          { role: "tool", tool_call_id: "call-1", content: "saved" },
+        ],
+      }),
+    );
+    const toolStep = steps.find((step) => step.kind === "tool");
+    expect(toolStep?.tokens).toBe(1000);
+    expect(toolStep?.tokensNote).toContain("result size");
   });
 });

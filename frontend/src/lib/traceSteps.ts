@@ -240,6 +240,9 @@ function buildToolStep(
 }
 
 function describeToolTokens(estimate: ToolTokenEstimate): string {
+  if (estimate.fromResultSize) {
+    return `Estimated from the result size, about four characters per token. Turn ${estimate.readByTurn} read it`;
+  }
   const base = `Estimated from how much turn ${estimate.readByTurn}'s prompt grew after this result`;
   if (estimate.sharedBy <= 1) return base;
   const others = estimate.sharedBy - 1;
