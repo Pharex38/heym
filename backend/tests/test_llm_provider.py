@@ -1,11 +1,14 @@
 import unittest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.llm_provider import (
     CUSTOM_RESPONSES_SUPPORT_MESSAGE,
     GOOGLE_RESPONSES_UNSUPPORTED_MESSAGE,
     OPENAI_RESPONSES_SUPPORT_MESSAGE,
+    fetch_openai_models,
     get_default_google_models,
     get_default_openai_models,
+    is_openai_chat_model,
     is_reasoning_model,
     opencode_responses_support,
 )
@@ -65,3 +68,48 @@ class TestOpenCodeResponsesSupport(unittest.TestCase):
         supported, reason = opencode_responses_support("claude-haiku-5-5")
         self.assertFalse(supported)
         self.assertIn("Anthropic Messages", reason)
+
+
+class TestOpenAIModelDiscovery(unittest.IsolatedAsyncioTestCase):
+    """The model list must not hide newer chat models (issue #792)."""
+
+    def test_newer_chat_generations_are_listed(self) -> None:
+        for model in ("gpt-5", "gpt-5.6-luna", "gpt-6.1-sol", "o4-mini", "gpt-5.1-codex"):
+            self.assertTrue(is_openai_chat_model(model), model)
+
+    def test_existing_chat_models_are_still_listed(self) -> None:
+        for model in ("gpt-4o", "gpt-4.1", "gpt-3.5-turbo", "o1", "o3-mini", "chatgpt-4o-latest"):
+            self.assertTrue(is_openai_chat_model(model), model)
+
+    def test_non_chat_models_are_left_out(self) -> None:
+        for model in (
+            "text-embedding-3-small",
+            "whisper-1",
+            "tts-1",
+            "gpt-4o-mini-tts",
+            "gpt-4o-audio-preview",
+            "gpt-4o-realtime-preview",
+            "gpt-4o-transcribe",
+            "gpt-4o-search-preview",
+            "gpt-image-1",
+            "dall-e-3",
+            "omni-moderation-latest",
+            "davinci-002",
+            "babbage-002",
+            "computer-use-preview",
+        ):
+            self.assertFalse(is_openai_chat_model(model), model)
+
+    async def test_fetch_openai_models_keeps_newer_models(self) -> None:
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {
+            "data": [{"id": i} for i in ("gpt-6.1-sol", "o4-mini", "gpt-4o", "whisper-1")]
+        }
+        client = MagicMock()
+        client.get = AsyncMock(return_value=response)
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        with patch("app.services.llm_provider.httpx.AsyncClient", return_value=client):
+            models = await fetch_openai_models("sk-test")
+        self.assertEqual(sorted(m.id for m in models), ["gpt-4o", "gpt-6.1-sol", "o4-mini"])

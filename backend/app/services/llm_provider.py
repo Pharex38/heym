@@ -89,6 +89,38 @@ async def fetch_models(credential_type: CredentialType, config: dict) -> list[LL
     return []
 
 
+# OpenAI's /v1/models lists far more than the chat models Heym can drive: the
+# `gpt-`/`o<n>`/`chatgpt` families are chat-capable, but it also returns image,
+# audio, realtime, embedding, moderation and legacy-completion models that the
+# chat UI can't use. Matching chat families by generation (not a fixed name
+# list) keeps new gpt-5/gpt-6/o4 models visible as they ship.
+_NON_CHAT_MARKERS = (
+    "embedding",
+    "whisper",
+    "tts",
+    "audio",
+    "transcribe",
+    "realtime",
+    "image",
+    "dall-e",
+    "moderation",
+    "-search",
+    "search-",
+    "davinci",
+    "babbage",
+    "computer-use",
+)
+_OPENAI_CHAT_ID = re.compile(r"(?:^|[/:])(?:gpt-\d|chatgpt|o\d)")
+
+
+def is_openai_chat_model(model_id: str) -> bool:
+    """Whether an OpenAI /v1/models id is a chat model Heym can use."""
+    model_lower = model_id.lower()
+    if any(marker in model_lower for marker in _NON_CHAT_MARKERS):
+        return False
+    return _OPENAI_CHAT_ID.search(model_lower) is not None
+
+
 async def fetch_openai_models(api_key: str) -> list[LLMModel]:
     try:
         async with httpx.AsyncClient(
@@ -105,7 +137,7 @@ async def fetch_openai_models(api_key: str) -> list[LLMModel]:
             models = []
             for model in data.get("data", []):
                 model_id = model.get("id", "")
-                if any(x in model_id for x in ["gpt-4", "gpt-3.5", "o1", "o3", "chatgpt"]):
+                if is_openai_chat_model(model_id):
                     models.append(
                         LLMModel(
                             id=model_id,
